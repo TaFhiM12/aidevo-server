@@ -13,7 +13,17 @@ import eventRoutes from "./modules/events/event.routes.js";
 
 const app = express();
 
-app.use(cors(corsOptions));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "http://127.0.0.1:5173",
+      "https://your-frontend-domain.com",
+    ],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get("/", (req, res) => {
