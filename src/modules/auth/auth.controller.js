@@ -19,7 +19,7 @@ const getAccessToken = asyncHandler(async (req, res) => {
     statusCode: 200,
     success: true,
     message: "Access token issued successfully",
-    data: { user: result.user },
+    data: { user: result.user, accessToken: result.accessToken },
   });
 });
 
