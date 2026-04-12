@@ -3,6 +3,7 @@ import userRepository from "../users/user.repository.js";
 import applicationRepository from "./application.repository.js";
 import { ObjectId } from "mongodb";
 import { getCollections } from "../../config/collections.js";
+import notificationService from "../notifications/notification.service.js";
 
 const submitApplication = async (applicationData) => {
   if (!applicationData.studentId || !applicationData.organizationId) {
@@ -68,6 +69,33 @@ const submitApplication = async (applicationData) => {
 
   const result = await applicationRepository.createOne(application);
 
+  await Promise.all([
+    notificationService.createNotification({
+      recipientUid: organizationUser.uid,
+      type: "application_submitted",
+      title: "New Application Received",
+      message: `${studentUser.name} applied to join ${organizationUser.organization?.name || organizationUser.name}.`,
+      actorUid: studentUser.uid,
+      actorName: studentUser.name,
+      meta: {
+        applicationId: result.insertedId,
+        organizationId: organizationMongoId,
+      },
+    }),
+    notificationService.createNotification({
+      recipientUid: studentUser.uid,
+      type: "application_confirmation",
+      title: "Application Submitted",
+      message: `Your application to ${organizationUser.organization?.name || organizationUser.name} is pending review.`,
+      actorUid: organizationUser.uid,
+      actorName: organizationUser.organization?.name || organizationUser.name,
+      meta: {
+        applicationId: result.insertedId,
+        organizationId: organizationMongoId,
+      },
+    }),
+  ]);
+
   return {
     applicationId: result.insertedId,
   };
@@ -117,6 +145,22 @@ const updateApplicationStatus = async (applicationId, status, notes) => {
   }
 
   await applicationRepository.updateStatusById(applicationId, updateData);
+
+  const studentUser = await userRepository.findById(application.studentId);
+  if (studentUser?.uid) {
+    await notificationService.createNotification({
+      recipientUid: studentUser.uid,
+      type: "application_status",
+      title: `Application ${status}`,
+      message: `Your application at ${application.organizationName} has been ${status}.`,
+      actorName: application.organizationName,
+      meta: {
+        applicationId,
+        status,
+        organizationId: application.organizationId,
+      },
+    });
+  }
 
   return null;
 };
@@ -202,6 +246,20 @@ const deleteApplication = async (applicationId) => {
   }
 
   await applicationRepository.deleteOneById(applicationId);
+
+  const studentUser = await userRepository.findById(application.studentId);
+  if (studentUser?.uid) {
+    await notificationService.createNotification({
+      recipientUid: studentUser.uid,
+      type: "application_removed",
+      title: "Application Removed",
+      message: `Your application record for ${application.organizationName} has been removed.`,
+      actorName: application.organizationName,
+      meta: {
+        applicationId,
+      },
+    });
+  }
 
   return null;
 };

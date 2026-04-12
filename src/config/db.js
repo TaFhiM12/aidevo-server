@@ -20,7 +20,6 @@ export async function connectDB() {
 
   await client.connect();
   dbInstance = client.db(env.dbName);
-  console.log("✅ Connected to MongoDB successfully!");
 
   return dbInstance;
 }

@@ -11,10 +11,7 @@ async function startServer() {
     await connectDB();
     initSocket(server);
 
-    server.listen(env.port, () => {
-      console.log(`🚀 Server running on port ${env.port}`);
-      console.log("💬 Socket.io server ready");
-    });
+    server.listen(env.port);
   } catch (error) {
     console.error("❌ Failed to start server:", error);
     process.exit(1);

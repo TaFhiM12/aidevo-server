@@ -1,6 +1,7 @@
 import { ObjectId } from "mongodb";
 import ApiError from "../../utils/ApiError.js";
 import conversationRepository from "./conversation.repository.js";
+import notificationService from "../notifications/notification.service.js";
 
 const buildParticipant = (user) => {
   const role = user.role;
@@ -8,6 +9,7 @@ const buildParticipant = (user) => {
   if (role === "student") {
     return {
       userId: user._id,
+      uid: user.uid || "",
       role: "student",
       name: user.name,
       photo: user.photoURL || "",
@@ -22,6 +24,7 @@ const buildParticipant = (user) => {
   if (role === "organization") {
     return {
       userId: user._id,
+      uid: user.uid || "",
       role: "organization",
       name: user.organization?.name || user.name,
       photo: user.photoURL || "",
@@ -35,6 +38,7 @@ const buildParticipant = (user) => {
 
   return {
     userId: user._id,
+    uid: user.uid || "",
     role: role || "user",
     name: user.name || "Unknown",
     photo: user.photoURL || "",
@@ -85,6 +89,20 @@ const createOrGetConversation = async (participantAId, participantBId) => {
       ...newConversation,
       _id: result.insertedId,
     };
+
+    if (participantA.uid && participantB.uid) {
+      await notificationService.createNotification({
+        recipientUid: participantB.uid,
+        type: "conversation_started",
+        title: "New conversation started",
+        message: `${participantAData.name} started a conversation with you.`,
+        actorUid: participantA.uid,
+        actorName: participantAData.name,
+        meta: {
+          conversationId: result.insertedId,
+        },
+      });
+    }
   }
 
   return conversation;

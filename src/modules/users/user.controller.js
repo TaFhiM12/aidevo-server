@@ -46,6 +46,28 @@ const createUser = asyncHandler(async (req, res) => {
   });
 });
 
+const getDashboardStatsByUid = asyncHandler(async (req, res) => {
+  const data = await userService.getDashboardStatsByUid(req.params.uid);
+
+  return sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Dashboard statistics fetched successfully",
+    data,
+  });
+});
+
+const getDashboardOverviewByUid = asyncHandler(async (req, res) => {
+  const data = await userService.getDashboardOverviewByUid(req.params.uid);
+
+  return sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Dashboard overview fetched successfully",
+    data,
+  });
+});
+
 const getAllUsers = asyncHandler(async (req, res) => {
   const users = await userService.getAllUsers();
 
@@ -61,6 +83,8 @@ const userController = {
   getUserByUid,
   getUserById,
   getUserRoleByEmail,
+  getDashboardStatsByUid,
+  getDashboardOverviewByUid,
   createUser,
   getAllUsers,
 };
