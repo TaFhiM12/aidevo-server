@@ -196,17 +196,18 @@ const getRelatedEvents = asyncHandler(async (req, res) => {
 
 const getEventRecommendations = asyncHandler(async (req, res) => {
   const { studentId } = req.params;
+  const targetStudent = await resolveStudentTarget(studentId);
 
-  if (!isValidObjectId(studentId)) {
-    throw new ApiError(400, "Invalid studentId");
+  if (!targetStudent) {
+    throw new ApiError(404, "Student not found");
   }
 
   const limit = parseRecommendationLimit(req.query.limit);
   const requesterUid = getRequesterUid(req);
 
-  await verifyStudentRecommendationAccess(studentId, requesterUid);
+  await verifyStudentRecommendationAccess(targetStudent.uid, requesterUid);
 
-  const events = await recommendationService.getRecommendedEvents(studentId, limit);
+  const events = await recommendationService.getRecommendedEvents(targetStudent.uid, limit);
 
   return sendResponse(res, {
     statusCode: 200,
