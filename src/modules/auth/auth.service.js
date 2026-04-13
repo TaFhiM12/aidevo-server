@@ -42,6 +42,7 @@ const issueAccessToken = async ({ uid, email }) => {
       email: user.email,
       role: user.role,
       name: user.name,
+      photoURL: user.photoURL || "",
     },
   };
 };

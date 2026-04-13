@@ -76,6 +76,7 @@ const getUserRoleByEmail = async (email) => {
     userInfo.organizationId = user._id.toString();
     userInfo.organizationName = user.organization?.name || "";
     userInfo.type = user.organization?.type || "";
+    userInfo.photoURL = user.photoURL || user.organization?.photoURL || "";
   }
 
   if (user.role === "student") {
