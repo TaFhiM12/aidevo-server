@@ -68,15 +68,30 @@ const resolveStudentTarget = async (studentIdentifier) => {
   return null;
 };
 
-const verifyStudentRecommendationAccess = async (studentId, requesterUid) => {
-  if (!requesterUid) {
-    throw new ApiError(401, "Unauthorized request: missing requester UID");
+const verifyStudentRecommendationAccess = async (studentId, req) => {
+  const requesterUid = getRequesterUid(req);
+  const requesterQueries = [];
+
+  if (requesterUid) {
+    requesterQueries.push({ uid: requesterUid });
+  }
+
+  if (typeof req.auth?.userId === "string" && isValidObjectId(req.auth.userId)) {
+    requesterQueries.push({ _id: toObjectId(req.auth.userId, "requester user ID") });
+  }
+
+  if (typeof req.auth?.email === "string" && req.auth.email.trim()) {
+    requesterQueries.push({ email: req.auth.email.trim() });
+  }
+
+  if (!requesterQueries.length) {
+    throw new ApiError(401, "Unauthorized request: missing requester identity");
   }
 
   const { usersCollection } = getCollections();
   const requester = await usersCollection.findOne(
-    { uid: requesterUid },
-    { projection: { _id: 1, role: 1 } }
+    { $or: requesterQueries },
+    { projection: { _id: 1, uid: 1, role: 1 } }
   );
 
   if (!requester) {
@@ -203,9 +218,8 @@ const getEventRecommendations = asyncHandler(async (req, res) => {
   }
 
   const limit = parseRecommendationLimit(req.query.limit);
-  const requesterUid = getRequesterUid(req);
 
-  await verifyStudentRecommendationAccess(targetStudent.uid, requesterUid);
+  await verifyStudentRecommendationAccess(targetStudent.uid, req);
 
   const events = await recommendationService.getRecommendedEvents(targetStudent.uid, limit);
 
