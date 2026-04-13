@@ -1,5 +1,9 @@
 import { getCollections } from "../../config/collections.js";
 import { toObjectId } from "../../utils/objectId.js";
+import env from "../../config/env.js";
+
+const recommendationServiceBaseUrl = env.recommendationServiceUrl?.replace(/\/+$/, "");
+const recommendationTimeoutMs = env.recommendationTimeoutMs;
 
 // Calculate similarity between two strings (interests, categories, etc.)
 const calculateSimilarity = (str1, str2) => {
@@ -63,14 +67,135 @@ const compareEventsForRanking = (a, b, scoreKey) => {
   return bCreatedAt - aCreatedAt;
 };
 
+const resolveStudentByIdentifier = async (studentIdentifier) => {
+  const { usersCollection } = getCollections();
+
+  const queries = [{ uid: studentIdentifier }];
+
+  if (typeof studentIdentifier === "string") {
+    try {
+      queries.push({ _id: toObjectId(studentIdentifier, "student ID") });
+    } catch (error) {
+      // Ignore invalid ObjectId and fall back to uid lookup only.
+    }
+  }
+
+  for (const query of queries) {
+    const student = await usersCollection.findOne(query, {
+      projection: { uid: 1, role: 1, email: 1, student: 1 },
+    });
+
+    if (student) {
+      return student;
+    }
+  }
+
+  return null;
+};
+
+const fetchFromRecommendationService = async (studentId, limit) => {
+  if (!recommendationServiceBaseUrl) {
+    return null;
+  }
+
+  const { usersCollection, eventsCollection } = getCollections();
+  const student = await resolveStudentByIdentifier(studentId);
+
+  if (!student?.uid || !student?.email) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), recommendationTimeoutMs);
+
+  try {
+    const response = await fetch(`${recommendationServiceBaseUrl}/api/recommendations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_id: student.uid,
+        email: student.email,
+        num_recommendations: limit,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `[recommendation-service] non-200 response: ${response.status} ${response.statusText}`
+      );
+      return null;
+    }
+
+    const payload = await response.json();
+    const recommendations = Array.isArray(payload?.recommendations)
+      ? payload.recommendations
+      : [];
+
+    if (!recommendations.length) {
+      return [];
+    }
+
+    const eventIds = recommendations
+      .map((item) => item?.event_id)
+      .filter((id) => id)
+      .map((id) => toObjectId(id));
+
+    if (!eventIds.length) {
+      return [];
+    }
+
+    const events = await eventsCollection
+      .find({ _id: { $in: eventIds }, status: "active" })
+      .toArray();
+
+    const eventById = new Map(events.map((event) => [event._id.toString(), event]));
+
+    return recommendations
+      .map((item) => {
+        const event = eventById.get(String(item.event_id));
+        if (!event) {
+          return null;
+        }
+
+        return {
+          ...event,
+          recommendationMeta: {
+            score: item.score,
+            contentScore: item.content_score,
+            collaborativeScore: item.collaborative_score,
+            engagementScore: item.engagement_score,
+            reason: item.reason,
+          },
+        };
+      })
+      .filter(Boolean)
+      .slice(0, limit);
+  } catch (error) {
+    const label = error?.name === "AbortError" ? "timeout" : error?.message;
+    console.warn(`[recommendation-service] fallback to local recommender: ${label}`);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 // Get events student has participated in
 const getStudentParticipatedEvents = async (studentId) => {
   const { applicationsCollection, eventsCollection } = getCollections();
 
+  const student = await resolveStudentByIdentifier(studentId);
+
+  if (!student?._id) {
+    return [];
+  }
+
   // Find approved applications for the student
   const applications = await applicationsCollection
     .find({
-      studentId: toObjectId(studentId),
+      studentId: student._id,
       status: "approved"
     })
     .toArray();
@@ -148,14 +273,17 @@ const calculateEventScore = (event, studentInterests, participatedOrgs) => {
 
 // Get recommended events for a student
 const getRecommendedEvents = async (studentId, limit = 6) => {
+  const externalRecommendations = await fetchFromRecommendationService(studentId, limit);
+
+  if (Array.isArray(externalRecommendations)) {
+    return externalRecommendations;
+  }
+
   const { usersCollection, eventsCollection } = getCollections();
 
   try {
     // Get student profile to find interests
-    const student = await usersCollection.findOne(
-      { _id: toObjectId(studentId) },
-      { projection: { "student.interests": 1 } }
-    );
+    const student = await resolveStudentByIdentifier(studentId);
 
     const studentInterests = student?.student?.interests || "";
 

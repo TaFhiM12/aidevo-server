@@ -1,7 +1,7 @@
 import asyncHandler from "../../utils/asyncHandler.js";
 import sendResponse from "../../utils/sendResponse.js";
 import ApiError from "../../utils/ApiError.js";
-import { isValidObjectId } from "../../utils/objectId.js";
+import { isValidObjectId, toObjectId } from "../../utils/objectId.js";
 import { getCollections } from "../../config/collections.js";
 import eventService from "./event.service.js";
 import recommendationService from "./event.recommendations.js";
@@ -46,6 +46,28 @@ const getRequesterUid = (req) => {
   return null;
 };
 
+const resolveStudentTarget = async (studentIdentifier) => {
+  const { usersCollection } = getCollections();
+
+  const queries = [{ uid: studentIdentifier }];
+
+  if (isValidObjectId(studentIdentifier)) {
+    queries.push({ _id: toObjectId(studentIdentifier, "student ID") });
+  }
+
+  for (const query of queries) {
+    const student = await usersCollection.findOne(query, {
+      projection: { _id: 1, uid: 1, role: 1 },
+    });
+
+    if (student) {
+      return student;
+    }
+  }
+
+  return null;
+};
+
 const verifyStudentRecommendationAccess = async (studentId, requesterUid) => {
   if (!requesterUid) {
     throw new ApiError(401, "Unauthorized request: missing requester UID");
@@ -65,7 +87,17 @@ const verifyStudentRecommendationAccess = async (studentId, requesterUid) => {
     throw new ApiError(403, "Only student accounts can access student recommendations");
   }
 
-  if (requester._id.toString() !== studentId) {
+  const targetStudent = await resolveStudentTarget(studentId);
+
+  if (!targetStudent) {
+    throw new ApiError(404, "Student not found");
+  }
+
+  const requesterMatchesTarget =
+    requester._id.toString() === targetStudent._id.toString() ||
+    requester.uid === targetStudent.uid;
+
+  if (!requesterMatchesTarget) {
     throw new ApiError(403, "Forbidden: cannot access another student's recommendations");
   }
 };

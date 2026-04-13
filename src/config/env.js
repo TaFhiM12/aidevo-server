@@ -25,6 +25,10 @@ const env = {
   smtpPass: process.env.SMTP_PASS,
   smtpFrom: process.env.SMTP_FROM,
   smtpSecure: process.env.SMTP_SECURE || "false",
+  recommendationServiceUrl:
+    process.env.RECOMMENDATION_SERVICE_URL ||
+    "https://aidevo-recommendation-server.onrender.com",
+  recommendationTimeoutMs: Number(process.env.RECOMMENDATION_TIMEOUT_MS || 5000),
 };
 
 export default env;
