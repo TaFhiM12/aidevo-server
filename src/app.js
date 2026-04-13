@@ -41,6 +41,10 @@ app.use("/payments", paymentRoutes);
 app.use("/blood-bank", bloodBankRoutes);
 app.use("/newsletter", newsletterRoutes);
 
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 app.use(notFound);
 app.use(errorHandler);
 
