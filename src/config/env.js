@@ -17,6 +17,8 @@ const env = {
         "http://localhost:5173",
         "http://localhost:3000",
         "http://127.0.0.1:5173",
+        "https://aidevo.web.app",
+        "https://aidevo.firebaseapp.com",
       ],
   publicAppUrl: process.env.PUBLIC_APP_URL || "http://localhost:5173",
   smtpHost: process.env.SMTP_HOST,
