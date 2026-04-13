@@ -7,7 +7,12 @@ const issueAccessToken = async ({ uid, email }) => {
     throw new ApiError(400, "uid and email are required");
   }
 
-  const user = await userRepository.findByUid(uid);
+  let user = await userRepository.findByUid(uid);
+
+  // Backward-compatible fallback for users created before uid standardization.
+  if (!user) {
+    user = await userRepository.findByEmail(email);
+  }
 
   if (!user) {
     throw new ApiError(404, "User not found");
@@ -15,6 +20,11 @@ const issueAccessToken = async ({ uid, email }) => {
 
   if (user.email !== email) {
     throw new ApiError(403, "User identity mismatch");
+  }
+
+  if (user.uid !== uid) {
+    await userRepository.updateUidById(user._id.toString(), uid);
+    user.uid = uid;
   }
 
   const token = signJwtToken({
