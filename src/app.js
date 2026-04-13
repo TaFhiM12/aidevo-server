@@ -16,10 +16,17 @@ import notificationRoutes from "./modules/notifications/notification.routes.js";
 import paymentRoutes from "./modules/payments/payment.routes.js";
 import bloodBankRoutes from "./modules/bloodBank/bloodBank.routes.js";
 import newsletterRoutes from "./modules/newsletter/newsletter.routes.js";
+import { http } from 'http';
 
 const app = express();
 
-app.use(cors(corsOptions));
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "https://aidevo.web.app"
+  ],
+  credentials: true
+}));
 app.use(express.json());
 app.use(cookieParser());
 
