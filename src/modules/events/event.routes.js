@@ -50,6 +50,12 @@ router.get(
 	authorizeAccess({ roles: ["organization", "super-admin", "superAdmin"] }),
 	eventController.getEventParticipants
 );
+router.put(
+	"/:eventId",
+	authenticateJWT,
+	authorizeAccess({ roles: ["organization", "super-admin", "superAdmin"] }),
+	eventController.updateEvent
+);
 router.delete(
 	"/:eventId/participants/:participantId",
 	authenticateJWT,

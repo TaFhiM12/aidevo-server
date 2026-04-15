@@ -172,12 +172,23 @@ const getEventById = asyncHandler(async (req, res) => {
 });
 
 const deleteEvent = asyncHandler(async (req, res) => {
-  await eventService.deleteEvent(req.params.eventId);
+  await eventService.deleteEvent(req.params.eventId, req.auth);
 
   return sendResponse(res, {
     statusCode: 200,
     success: true,
     message: "Event deleted successfully",
+  });
+});
+
+const updateEvent = asyncHandler(async (req, res) => {
+  const result = await eventService.updateEvent(req.params.eventId, req.body, req.auth);
+
+  return sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Event updated successfully",
+    data: result,
   });
 });
 
@@ -311,6 +322,7 @@ const eventController = {
   getAllEvents,
   getEventById,
   deleteEvent,
+  updateEvent,
   getRelatedEvents,
   updateEventStatus,
   getEventRecommendations,

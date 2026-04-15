@@ -22,6 +22,7 @@ const findAllActive = async () => {
       "organization.website": 1,
       "organization.phone": 1,
       "organization.membershipCount": 1,
+      "organization.recruitment": 1,
       "organization.coverPhoto": 1,
       "organization.photoAlbum": 1,
     })

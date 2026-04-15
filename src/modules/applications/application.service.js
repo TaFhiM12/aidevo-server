@@ -24,6 +24,31 @@ const submitApplication = async (applicationData) => {
     throw new ApiError(404, "Organization not found");
   }
 
+  const recruitmentOpen =
+    organizationUser.organization?.recruitment?.isOpen === true;
+  const recruitmentDeadlineValue = organizationUser.organization?.recruitment?.deadline;
+  const recruitmentDeadline = recruitmentDeadlineValue
+    ? new Date(recruitmentDeadlineValue)
+    : null;
+  const deadlinePassed =
+    recruitmentDeadline instanceof Date &&
+    !Number.isNaN(recruitmentDeadline.getTime()) &&
+    recruitmentDeadline.getTime() < Date.now();
+
+  if (!recruitmentOpen) {
+    throw new ApiError(
+      400,
+      "Recruitment is currently closed for this organization"
+    );
+  }
+
+  if (deadlinePassed) {
+    throw new ApiError(
+      400,
+      "The application deadline for this organization has passed"
+    );
+  }
+
   const studentMongoId = studentUser._id.toString();
   const organizationMongoId = organizationUser._id.toString();
 
@@ -46,6 +71,9 @@ const submitApplication = async (applicationData) => {
     organizationName:
       organizationUser.organization?.name || organizationUser.name,
     organizationEmail: organizationUser.email,
+    recruitmentHeadline: organizationUser.organization?.recruitment?.headline || "",
+    recruitmentDeadline:
+      organizationUser.organization?.recruitment?.deadline || "",
     fullName: applicationData.fullName,
     email: applicationData.email,
     phone: applicationData.phone,
@@ -108,7 +136,9 @@ const updateApplicationStatus = async (applicationId, status, notes) => {
     throw new ApiError(404, "Application not found");
   }
 
-  if (status === "approved") {
+  const statusChanged = application.status !== status;
+
+  if (statusChanged && status === "approved") {
     const memberData = {
       studentId: application.studentId,
       organizationId: application.organizationId,
@@ -140,26 +170,29 @@ const updateApplicationStatus = async (applicationId, status, notes) => {
     updatedAt: new Date(),
   };
 
-  if (notes) {
+  if (typeof notes === "string") {
     updateData.notes = notes;
+    updateData.notesUpdatedAt = notes.trim() ? new Date() : null;
   }
 
   await applicationRepository.updateStatusById(applicationId, updateData);
 
-  const studentUser = await userRepository.findById(application.studentId);
-  if (studentUser?.uid) {
-    await notificationService.createNotification({
-      recipientUid: studentUser.uid,
-      type: "application_status",
-      title: `Application ${status}`,
-      message: `Your application at ${application.organizationName} has been ${status}.`,
-      actorName: application.organizationName,
-      meta: {
-        applicationId,
-        status,
-        organizationId: application.organizationId,
-      },
-    });
+  if (statusChanged) {
+    const studentUser = await userRepository.findById(application.studentId);
+    if (studentUser?.uid) {
+      await notificationService.createNotification({
+        recipientUid: studentUser.uid,
+        type: "application_status",
+        title: `Application ${status}`,
+        message: `Your application at ${application.organizationName} has been ${status}.`,
+        actorName: application.organizationName,
+        meta: {
+          applicationId,
+          status,
+          organizationId: application.organizationId,
+        },
+      });
+    }
   }
 
   return null;

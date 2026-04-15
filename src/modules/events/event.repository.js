@@ -53,6 +53,17 @@ const updateStatusById = async (eventId, status) => {
   );
 };
 
+const updateById = async (eventId, payload) => {
+  const { eventsCollection } = getCollections();
+
+  return eventsCollection.updateOne(
+    { _id: toObjectId(eventId, "event ID") },
+    {
+      $set: payload,
+    }
+  );
+};
+
 const findActiveParticipation = async (eventId, studentId) => {
   const { eventParticipantsCollection } = getCollections();
 
@@ -135,6 +146,7 @@ const eventRepository = {
   findById,
   deleteById,
   updateStatusById,
+  updateById,
   findActiveParticipation,
   createParticipation,
   countActiveParticipantsByEventId,

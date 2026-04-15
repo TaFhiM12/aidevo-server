@@ -95,69 +95,146 @@ const REQUIRED_SPECIAL_FIELDS = {
   "Cultural Club": ["programType"],
 };
 
-const createEvent = async (payload) => {
-  // Validate required common fields
-  const requiredFields = ["title", "shortDesc", "location", "startAt", "endAt", "organization", "organizationEmail"];
-  
-  for (const field of requiredFields) {
-    if (!payload[field]) {
+const normalizeString = (value) => {
+  if (typeof value !== "string") return "";
+  return value.trim();
+};
+
+const parseSpecialRequirements = (value, fallback = {}) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  return fallback;
+};
+
+const buildValidatedEventPayload = async (payload, existingEvent = null) => {
+  const mergedPayload = existingEvent
+    ? { ...existingEvent, ...payload }
+    : { ...payload };
+
+  const resolvedOrganizationEmail = normalizeString(mergedPayload.organizationEmail);
+  const orgUser = resolvedOrganizationEmail
+    ? await userRepository.findByEmail(resolvedOrganizationEmail)
+    : null;
+
+  const resolvedOrganizationName =
+    normalizeString(mergedPayload.organization) ||
+    normalizeString(orgUser?.organization?.name) ||
+    normalizeString(orgUser?.organizationName) ||
+    normalizeString(orgUser?.name);
+
+  const resolvedRoleType =
+    normalizeString(mergedPayload.roleType) ||
+    normalizeString(orgUser?.organization?.roleType) ||
+    normalizeString(orgUser?.roleType);
+
+  const resolvedOrganizationType =
+    normalizeString(mergedPayload.organizationType) ||
+    resolvedRoleType ||
+    normalizeString(orgUser?.organization?.type) ||
+    normalizeString(orgUser?.type);
+
+  const requiredCommon = {
+    title: normalizeString(mergedPayload.title),
+    shortDesc: normalizeString(mergedPayload.shortDesc),
+    location: normalizeString(mergedPayload.location),
+    startAt: mergedPayload.startAt,
+    endAt: mergedPayload.endAt,
+    organization: resolvedOrganizationName,
+    organizationEmail: resolvedOrganizationEmail,
+  };
+
+  for (const [field, value] of Object.entries(requiredCommon)) {
+    if (!value) {
       throw new ApiError(400, `Missing required field: ${field}`);
     }
   }
 
-  // Validate dates
-  if (new Date(payload.endAt) <= new Date(payload.startAt)) {
+  if (new Date(requiredCommon.endAt) <= new Date(requiredCommon.startAt)) {
     throw new ApiError(400, "End time must be after start time");
   }
 
-  // Validate organization type
-  if (!payload.organizationType) {
+  if (!resolvedOrganizationType) {
     throw new ApiError(400, "Organization type is required");
   }
 
-  // Validate special requirements based on organization type
-  const requiredDynamicFields = REQUIRED_SPECIAL_FIELDS[payload.organizationType] || [];
-  
+  const specialRequirements = parseSpecialRequirements(
+    mergedPayload.specialRequirements,
+    existingEvent?.specialRequirements || {}
+  );
+
+  const requiredDynamicFields = REQUIRED_SPECIAL_FIELDS[resolvedOrganizationType] || [];
   for (const field of requiredDynamicFields) {
-    if (!payload.specialRequirements?.[field]) {
-      throw new ApiError(400, `Missing required special field: ${field} for ${payload.organizationType}`);
+    const value = specialRequirements?.[field];
+    if (!value || (typeof value === "string" && !value.trim())) {
+      throw new ApiError(
+        400,
+        `Missing required special field: ${field} for ${resolvedOrganizationType}`
+      );
     }
   }
 
-  const pricingType = payload.pricingType === "paid" ? "paid" : "free";
-  const feeValue = Number.parseFloat(payload.fee || "0");
+  const pricingType = mergedPayload.pricingType === "paid" ? "paid" : "free";
+  const feeValue = Number.parseFloat(mergedPayload.fee || "0");
 
   if (pricingType === "paid") {
     if (Number.isNaN(feeValue) || feeValue <= 0) {
       throw new ApiError(400, "Paid events must include a valid fee greater than 0");
     }
 
-    if (!payload.paymentDeadline) {
+    if (!mergedPayload.paymentDeadline) {
       throw new ApiError(400, "Payment deadline is required for paid events");
     }
 
-    if (new Date(payload.paymentDeadline) > new Date(payload.startAt)) {
+    if (new Date(mergedPayload.paymentDeadline) > new Date(requiredCommon.startAt)) {
       throw new ApiError(400, "Payment deadline must be before event start");
     }
   }
 
-  // Prepare event document
-  const event = {
-    ...payload,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    status: "active",
-    maxCapacity: payload.maxCapacity ? parseInt(payload.maxCapacity) : null,
+  const nextStatus = VALID_EVENT_STATUSES.includes(mergedPayload.status)
+    ? mergedPayload.status
+    : existingEvent?.status || "active";
+
+  return {
+    ...mergedPayload,
+    title: requiredCommon.title,
+    shortDesc: requiredCommon.shortDesc,
+    location: requiredCommon.location,
+    startAt: requiredCommon.startAt,
+    endAt: requiredCommon.endAt,
+    organization: requiredCommon.organization,
+    organizationEmail: requiredCommon.organizationEmail,
+    organizationType: resolvedOrganizationType,
+    roleType: resolvedRoleType || resolvedOrganizationType,
+    specialRequirements,
     pricingType,
     fee: pricingType === "paid" ? String(feeValue) : "0",
-    paymentDeadline: pricingType === "paid" ? payload.paymentDeadline : null,
-    refundPolicy: pricingType === "paid" ? payload.refundPolicy || "No refunds after confirmation." : "",
-    paymentInstructions: pricingType === "paid" ? payload.paymentInstructions || "" : "",
+    paymentDeadline: pricingType === "paid" ? mergedPayload.paymentDeadline : null,
+    refundPolicy:
+      pricingType === "paid"
+        ? mergedPayload.refundPolicy || "No refunds after confirmation."
+        : "",
+    paymentInstructions:
+      pricingType === "paid" ? mergedPayload.paymentInstructions || "" : "",
     scholarshipSeats:
-      pricingType === "paid" && payload.scholarshipSeats
-        ? parseInt(payload.scholarshipSeats)
+      pricingType === "paid" && mergedPayload.scholarshipSeats
+        ? parseInt(mergedPayload.scholarshipSeats)
         : 0,
-    registrationRequired: payload.registrationRequired !== false,
+    maxCapacity: mergedPayload.maxCapacity ? parseInt(mergedPayload.maxCapacity) : null,
+    registrationRequired: mergedPayload.registrationRequired !== false,
+    status: nextStatus,
+  };
+};
+
+const createEvent = async (payload) => {
+  const validatedPayload = await buildValidatedEventPayload(payload);
+
+  // Prepare event document
+  const event = {
+    ...validatedPayload,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    status: validatedPayload.status || "active",
   };
 
   // Remove undefined values
@@ -197,12 +274,8 @@ const getEventById = async (eventId) => {
   return event;
 };
 
-const deleteEvent = async (eventId) => {
-  const event = await eventRepository.findById(eventId);
-
-  if (!event) {
-    throw new ApiError(404, "Event not found");
-  }
+const deleteEvent = async (eventId, requesterAuth) => {
+  await assertOrgCanManageEvent(eventId, requesterAuth);
 
   await eventRepository.deleteById(eventId);
 
@@ -262,6 +335,31 @@ const updateEventStatus = async (eventId, status, requesterAuth) => {
   return {
     eventId,
     status,
+  };
+};
+
+const updateEvent = async (eventId, payload, requesterAuth) => {
+  const { event: existingEvent } = await assertOrgCanManageEvent(eventId, requesterAuth);
+
+  const validatedPayload = await buildValidatedEventPayload(payload, existingEvent);
+
+  const updateDoc = {
+    ...validatedPayload,
+    createdAt: existingEvent.createdAt || new Date(),
+    updatedAt: new Date(),
+  };
+
+  delete updateDoc._id;
+
+  await eventRepository.updateById(eventId, updateDoc);
+
+  if (existingEvent.status !== "active" && updateDoc.status === "active") {
+    schedulePublishedEventNotification({ ...existingEvent, ...updateDoc, _id: eventId });
+  }
+
+  return {
+    eventId,
+    message: "Event updated successfully",
   };
 };
 
@@ -489,6 +587,7 @@ const getStudentParticipations = async (studentUid, requesterAuth) => {
 
 const eventService = {
   createEvent,
+  updateEvent,
   getAllEvents,
   getEventById,
   getRelatedEvents,
