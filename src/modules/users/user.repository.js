@@ -24,6 +24,14 @@ const updateUidById = async (userId, uid) => {
   );
 };
 
+const updateById = async (userId, updatePayload) => {
+  const { usersCollection } = getCollections();
+  return usersCollection.updateOne(
+    { _id: toObjectId(userId, "user ID") },
+    { $set: updatePayload }
+  );
+};
+
 const findAll = async () => {
   const { usersCollection } = getCollections();
   return usersCollection.find().toArray();
@@ -39,6 +47,7 @@ const userRepository = {
   findById,
   findByEmail,
   updateUidById,
+  updateById,
   findAll,
   createOne,
 };

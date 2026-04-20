@@ -12,6 +12,12 @@ const router = Router();
 const ADMIN_ROLES = ["super-admin", "superAdmin"];
 
 router.post("/", userController.createUser);
+router.patch(
+	"/:userId/role",
+	authenticateJWT,
+	authorizeAccess({ roles: ADMIN_ROLES }),
+	userController.updateUserRole
+);
 router.get(
 	"/dashboard-overview/:uid",
 	authenticateJWT,

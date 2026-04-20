@@ -13,8 +13,11 @@ const SUPPORTED_BLOOD_GROUPS = [
 ];
 
 const SUPPORTED_URGENCY_LEVELS = ["critical", "high", "medium"];
+const DONOR_AVAILABILITY_STATUSES = ["available", "limited", "inactive"];
+const NOTIFICATION_CHANNELS = ["email", "sms", "whatsapp"];
 const DONOR_MODERATION_STATUSES = ["approved", "hidden", "pending"];
-const REQUEST_STATUSES = ["active", "resolved", "hidden"];
+const REQUEST_STATUSES = ["pending", "matched", "contacted", "fulfilled", "archived", "hidden"];
+const PUBLIC_REQUEST_STATUSES = ["pending", "matched", "contacted"];
 
 const sanitizeText = (value) => String(value || "").trim();
 
@@ -24,6 +27,11 @@ const registerDonor = async (payload) => {
   const bloodGroup = sanitizeText(payload.bloodGroup).toUpperCase();
   const address = sanitizeText(payload.address);
   const note = sanitizeText(payload.note);
+  const availabilityStatus = sanitizeText(payload.availabilityStatus).toLowerCase() || "available";
+  const preferredContactMethods = Array.isArray(payload.preferredContactMethods)
+    ? payload.preferredContactMethods.map((method) => sanitizeText(method).toLowerCase()).filter((method) => NOTIFICATION_CHANNELS.includes(method))
+    : [];
+  const lastDonationAt = sanitizeText(payload.lastDonationAt);
 
   const latitude = Number(payload.latitude);
   const longitude = Number(payload.longitude);
@@ -34,6 +42,14 @@ const registerDonor = async (payload) => {
 
   if (!SUPPORTED_BLOOD_GROUPS.includes(bloodGroup)) {
     throw new ApiError(400, "Invalid blood group");
+  }
+
+  if (!DONOR_AVAILABILITY_STATUSES.includes(availabilityStatus)) {
+    throw new ApiError(400, "Invalid availability status");
+  }
+
+  if (lastDonationAt && Number.isNaN(new Date(lastDonationAt).getTime())) {
+    throw new ApiError(400, "Invalid last donation date");
   }
 
   if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
@@ -50,6 +66,10 @@ const registerDonor = async (payload) => {
     bloodGroup,
     address,
     note,
+    availabilityStatus,
+    preferredContactMethods,
+    lastDonationAt: lastDonationAt || null,
+    verified: true,
     location: {
       type: "Point",
       coordinates: [longitude, latitude],
@@ -78,6 +98,10 @@ const getPublicDonors = async (limit = 20) => {
     name: donor.name,
     bloodGroup: donor.bloodGroup,
     address: donor.address,
+    availabilityStatus: donor.availabilityStatus || "available",
+    lastDonationAt: donor.lastDonationAt || null,
+    preferredContactMethods: Array.isArray(donor.preferredContactMethods) ? donor.preferredContactMethods : [],
+    verified: Boolean(donor.verified),
     latitude: donor.latitude,
     longitude: donor.longitude,
     createdAt: donor.createdAt,
@@ -93,6 +117,9 @@ const createUrgentRequest = async (payload) => {
   const hospitalAddress = sanitizeText(payload.hospitalAddress);
   const note = sanitizeText(payload.note);
   const urgencyLevel = sanitizeText(payload.urgencyLevel).toLowerCase() || "high";
+  const notificationChannels = Array.isArray(payload.notificationChannels)
+    ? payload.notificationChannels.map((channel) => sanitizeText(channel).toLowerCase()).filter((channel) => NOTIFICATION_CHANNELS.includes(channel))
+    : [];
 
   const latitude = Number(payload.latitude);
   const longitude = Number(payload.longitude);
@@ -120,9 +147,11 @@ const createUrgentRequest = async (payload) => {
     hospitalAddress,
     note,
     urgencyLevel,
+    status: "pending",
+    notificationChannels,
+    matchedDonorCount: 0,
     latitude,
     longitude,
-    status: "active",
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -136,7 +165,7 @@ const createUrgentRequest = async (payload) => {
 
 const getPublicUrgentRequests = async (limit = 20) => {
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
-  const requests = await bloodBankRepository.getRecentUrgentRequests(safeLimit, ["active"]);
+  const requests = await bloodBankRepository.getRecentUrgentRequests(safeLimit, PUBLIC_REQUEST_STATUSES);
 
   return requests.map((request) => ({
     _id: request._id,
@@ -145,6 +174,9 @@ const getPublicUrgentRequests = async (limit = 20) => {
     hospitalAddress: request.hospitalAddress,
     note: request.note,
     urgencyLevel: request.urgencyLevel,
+    status: request.status || "pending",
+    notificationChannels: Array.isArray(request.notificationChannels) ? request.notificationChannels : [],
+    matchedDonorCount: Number(request.matchedDonorCount || 0),
     latitude: request.latitude,
     longitude: request.longitude,
     createdAt: request.createdAt,
@@ -159,7 +191,7 @@ const getPublicUrgentRequests = async (limit = 20) => {
 const getAdminModerationQueue = async () => {
   const [pendingDonors, urgentRequests] = await Promise.all([
     bloodBankRepository.getRecentDonors(50, "pending"),
-    bloodBankRepository.getRecentUrgentRequests(50, ["active"]),
+    bloodBankRepository.getRecentUrgentRequests(50, PUBLIC_REQUEST_STATUSES),
   ]);
 
   return {

@@ -46,6 +46,21 @@ const createUser = asyncHandler(async (req, res) => {
   });
 });
 
+const updateUserRole = asyncHandler(async (req, res) => {
+  const updatedUser = await userService.updateUserRole(
+    req.params.userId,
+    req.body.role,
+    req.auth
+  );
+
+  return sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "User role updated successfully",
+    data: updatedUser,
+  });
+});
+
 const getDashboardStatsByUid = asyncHandler(async (req, res) => {
   const data = await userService.getDashboardStatsByUid(req.params.uid);
 
@@ -83,6 +98,7 @@ const userController = {
   getUserByUid,
   getUserById,
   getUserRoleByEmail,
+  updateUserRole,
   getDashboardStatsByUid,
   getDashboardOverviewByUid,
   createUser,

@@ -104,6 +104,41 @@ const createUser = async (payload) => {
   };
 };
 
+const ALLOWED_PLATFORM_ROLES = ["student", "organization", "super-admin", "superAdmin"];
+
+const normalizeRole = (role) => {
+  const normalized = String(role || "").trim();
+  if (normalized === "superAdmin") {
+    return "super-admin";
+  }
+  return normalized;
+};
+
+const updateUserRole = async (userId, role, requesterAuth) => {
+  const targetUser = await userRepository.findById(userId);
+
+  if (!targetUser) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const nextRole = normalizeRole(role);
+
+  if (!ALLOWED_PLATFORM_ROLES.includes(nextRole)) {
+    throw new ApiError(400, "Invalid role. Allowed roles: student, organization, super-admin");
+  }
+
+  if (String(targetUser.uid || "") === String(requesterAuth?.uid || "") && nextRole !== "super-admin") {
+    throw new ApiError(400, "Super admin cannot remove own admin privileges");
+  }
+
+  await userRepository.updateById(userId, {
+    role: nextRole,
+    updatedAt: new Date(),
+  });
+
+  return userRepository.findById(userId);
+};
+
 const getAllUsers = async () => {
   return userRepository.findAll();
 };
@@ -115,7 +150,14 @@ const getDashboardStatsByUid = async (uid) => {
     throw new ApiError(404, "User not found");
   }
 
-  const { applicationsCollection, membersCollection, eventsCollection } = getCollections();
+  const {
+    applicationsCollection,
+    membersCollection,
+    eventsCollection,
+    usersCollection,
+    bloodDonorsCollection,
+    bloodRequestsCollection,
+  } = getCollections();
 
   if (user.role === "student") {
     const studentId = user._id.toString();
@@ -175,6 +217,48 @@ const getDashboardStatsByUid = async (uid) => {
     };
   }
 
+  if (user.role === "super-admin" || user.role === "superAdmin") {
+    const [
+      totalUsers,
+      totalStudents,
+      totalOrganizations,
+      totalEvents,
+      totalApplications,
+      totalBloodDonors,
+      approvedBloodDonors,
+      pendingBloodDonors,
+      totalBloodRequests,
+      openBloodRequests,
+    ] = await Promise.all([
+      usersCollection.countDocuments({}),
+      usersCollection.countDocuments({ role: "student" }),
+      usersCollection.countDocuments({ role: "organization" }),
+      eventsCollection.countDocuments({}),
+      applicationsCollection.countDocuments({}),
+      bloodDonorsCollection.countDocuments({}),
+      bloodDonorsCollection.countDocuments({ status: "approved" }),
+      bloodDonorsCollection.countDocuments({ status: "pending" }),
+      bloodRequestsCollection.countDocuments({}),
+      bloodRequestsCollection.countDocuments({ status: { $nin: ["fulfilled", "archived", "hidden"] } }),
+    ]);
+
+    return {
+      role: "super-admin",
+      stats: {
+        totalUsers,
+        totalStudents,
+        totalOrganizations,
+        totalEvents,
+        totalApplications,
+        totalBloodDonors,
+        approvedBloodDonors,
+        pendingBloodDonors,
+        totalBloodRequests,
+        openBloodRequests,
+      },
+    };
+  }
+
   return {
     role: user.role,
     stats: {},
@@ -188,7 +272,13 @@ const getDashboardOverviewByUid = async (uid) => {
     throw new ApiError(404, "User not found");
   }
 
-  const { applicationsCollection, membersCollection, eventsCollection } = getCollections();
+  const {
+    applicationsCollection,
+    membersCollection,
+    eventsCollection,
+    usersCollection,
+    bloodRequestsCollection,
+  } = getCollections();
   const base = await getDashboardStatsByUid(uid);
 
   if (user.role === "student") {
@@ -373,6 +463,57 @@ const getDashboardOverviewByUid = async (uid) => {
     };
   }
 
+  if (user.role === "super-admin" || user.role === "superAdmin") {
+    const [recentUsers, recentEvents, recentBloodRequests] = await Promise.all([
+      usersCollection
+        .find({})
+        .project({
+          name: 1,
+          email: 1,
+          role: 1,
+          photoURL: 1,
+          uid: 1,
+        })
+        .sort({ _id: -1 })
+        .limit(6)
+        .toArray(),
+      eventsCollection
+        .find({})
+        .project({
+          title: 1,
+          organizationName: 1,
+          organizationEmail: 1,
+          startAt: 1,
+          status: 1,
+        })
+        .sort({ _id: -1 })
+        .limit(5)
+        .toArray(),
+      bloodRequestsCollection
+        .find({})
+        .project({
+          patientName: 1,
+          bloodGroup: 1,
+          hospitalName: 1,
+          urgency: 1,
+          status: 1,
+          createdAt: 1,
+        })
+        .sort({ _id: -1 })
+        .limit(5)
+        .toArray(),
+    ]);
+
+    return {
+      ...base,
+      overview: {
+        recentUsers,
+        recentEvents,
+        recentBloodRequests,
+      },
+    };
+  }
+
   return {
     ...base,
     overview: {},
@@ -383,6 +524,7 @@ const userService = {
   getUserByUid,
   getUserById,
   getUserRoleByEmail,
+  updateUserRole,
   getDashboardStatsByUid,
   getDashboardOverviewByUid,
   createUser,
